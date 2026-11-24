@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 
 import config from '../config';
 import * as catalogo from '../services/catalogo.service';
@@ -29,7 +30,7 @@ router.get('/usuarios', async (req, res, next) => {
 
 /**
  * PUT /api/admin/usuarios/:id
- * Se verifica el permiso del usuario antes de modificar roles.
+ * Se verifica el permiso antes de modificar roles.
  */
 router.put('/usuarios/:id', async (req, res, next) => {
   try {
@@ -162,8 +163,7 @@ const HOSTS_PERMITIDOS = new Set([
  * POST /api/admin/probar-conexion
  *
  * Corrección VUL-22:
- * Se valida el host y se ejecuta el proceso con argumentos
- * separados, sin utilizar un intérprete de comandos.
+ * Ejecución con argumentos separados y sin shell.
  */
 router.post('/probar-conexion', (req, res) => {
   const { host } = req.body || {};
@@ -217,32 +217,145 @@ router.post('/probar-conexion', (req, res) => {
 });
 
 /**
+ * Configuración de subida de imágenes.
+ */
+const EXTENSIONES_PERMITIDAS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+]);
+
+const TAMANO_MAX = 512 * 1024;
+
+/**
+ * Comprueba que la firma binaria coincida
+ * con la extensión de la imagen.
+ */
+function imagenValida(
+  buffer: Buffer,
+  extension: string
+): boolean {
+  if (extension === '.png') {
+    const firmaPNG = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47,
+      0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+
+    return (
+      buffer.length >= 8 &&
+      buffer.subarray(0, 8).equals(firmaPNG)
+    );
+  }
+
+  if (extension === '.jpg' || extension === '.jpeg') {
+    return (
+      buffer.length >= 5 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff &&
+      buffer[buffer.length - 2] === 0xff &&
+      buffer[buffer.length - 1] === 0xd9
+    );
+  }
+
+  return false;
+}
+
+/**
  * POST /api/admin/subir-archivo
  *
- * Pendiente VUL-12:
- * Validar extensión, contenido, tamaño y nombre del archivo.
+ * Corrección VUL-12:
+ * Valida extensión, firma binaria, tamaño y formato.
+ * Genera un nombre seguro para evitar path traversal.
  */
-router.post('/subir-archivo', express.json({ limit: '8mb' }), (req, res, next) => {
+router.post('/subir-archivo', (req, res, next) => {
   try {
     const { nombre, contenidoBase64 } = req.body || {};
 
-    if (!nombre || !contenidoBase64) {
+    if (
+      typeof nombre !== 'string' ||
+      typeof contenidoBase64 !== 'string' ||
+      !nombre.trim() ||
+      !contenidoBase64.trim()
+    ) {
       return res.status(400).json({
-        error: 'Falta el archivo.',
+        error: 'Falta el archivo o su formato es inválido.',
+      });
+    }
+
+    if (
+      nombre.includes('/') ||
+      nombre.includes('\\') ||
+      nombre.includes('\0') ||
+      nombre.includes('..') ||
+      nombre.length > 255
+    ) {
+      return res.status(400).json({
+        error: 'Nombre de archivo inválido.',
+      });
+    }
+
+    const extension = path.extname(nombre).toLowerCase();
+
+    if (!EXTENSIONES_PERMITIDAS.has(extension)) {
+      return res.status(400).json({
+        error: 'Solo se permiten imágenes PNG y JPEG.',
+      });
+    }
+
+    if (contenidoBase64.length > Math.ceil(TAMANO_MAX / 3) * 4) {
+      return res.status(413).json({
+        error: 'El archivo supera el tamaño máximo de 512 KB.',
+      });
+    }
+
+    const formatoBase64 =
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+    if (!formatoBase64.test(contenidoBase64)) {
+      return res.status(400).json({
+        error: 'Contenido Base64 inválido.',
       });
     }
 
     const buffer = Buffer.from(contenidoBase64, 'base64');
 
-    fs.mkdirSync(config.uploadsDir, { recursive: true });
+    if (buffer.length === 0) {
+      return res.status(400).json({
+        error: 'El archivo está vacío.',
+      });
+    }
 
-    const destino = path.join(config.uploadsDir, nombre);
+    if (buffer.length > TAMANO_MAX) {
+      return res.status(413).json({
+        error: 'El archivo supera el tamaño máximo de 512 KB.',
+      });
+    }
 
-    fs.writeFileSync(destino, buffer);
+    if (!imagenValida(buffer, extension)) {
+      return res.status(400).json({
+        error: 'El contenido no coincide con el formato de imagen.',
+      });
+    }
+
+    const nombreSeguro = `${randomUUID()}${extension}`;
+
+    fs.mkdirSync(config.uploadsDir, {
+      recursive: true,
+    });
+
+    const destino = path.join(
+      config.uploadsDir,
+      nombreSeguro
+    );
+
+    fs.writeFileSync(destino, buffer, {
+      flag: 'wx',
+    });
 
     res.json({
       mensaje: 'Archivo subido.',
-      url: `/uploads/${nombre}`,
+      url: `/uploads/${nombreSeguro}`,
       bytes: buffer.length,
     });
   } catch (err) {
