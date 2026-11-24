@@ -1,4 +1,9 @@
 import * as db from '../db';
+import {
+  VARIEDADES_PERMITIDAS,
+  crearErrorHttp,
+  esValorPermitido,
+} from '../validacion';
 import type { Numerico } from '../tipos';
 
 export interface Facturacion {
@@ -20,21 +25,6 @@ export interface VentaPorVariedad {
   total: Numerico;
 }
 
-/**
- * Servicio de reportes.
- *
- * -----------------------------------------------------------------------------
- * FALLA — Inyección SQL (OWASP A03:2021)
- * -----------------------------------------------------------------------------
- * El reporte de ventas por origen concatena el origen recibido en la consulta.
- * Es el punto ideal para observar un UNION: el atacante puede elegir qué
- * columnas devuelve la consulta y terminar leyendo tablas que la app
- * nunca debería exponer (por ejemplo, la tabla de usuarios).
- *
- * Corrección: parametrizar la consulta y validar el origen contra una lista
- * blanca (Brasil / Colombia / Etiopía).
- * -----------------------------------------------------------------------------
- */
 
 /** Facturación total: suma de los totales de todos los pedidos. */
 export async function facturacion(): Promise<Facturacion> {
@@ -73,21 +63,21 @@ export async function masVendido(): Promise<ProductoMasVendido | null> {
   return rows[0] || null;
 }
 
-/** Ventas por origen (variedad). */
+/** Ventas por origen (variedad) usando lista blanca y consulta parametrizada. */
 export async function ventasPorVariedad(variedad: string): Promise<VentaPorVariedad[]> {
-  // FALLA: inyección SQL — el origen se concatena en el texto de la consulta.
-  // El HAVING está al final a propósito: es donde un payload UNION clásico
-  // ("Brasil' UNION SELECT username, password, 1, 1 FROM usuarios--") cierra la
-  // consulta original y agrega la segunda, que lee otra tabla.
-  const sql = `
-    SELECT pr.variedad, pr.nombre, SUM(pi.cantidad) AS unidades,
-           SUM(pi.cantidad * pi.precio_unitario) AS total
-      FROM pedido_items pi
-      JOIN productos pr ON pr.id = pi.producto_id
-     GROUP BY pr.variedad, pr.nombre
-    HAVING pr.variedad = '${variedad}'`;
+  if (!esValorPermitido(variedad, VARIEDADES_PERMITIDAS)) {
+    throw crearErrorHttp('Origen no permitido.', 400);
+  }
 
-  const { rows } = await db.query<VentaPorVariedad>(sql);
+  const { rows } = await db.query<VentaPorVariedad>(
+    `SELECT pr.variedad, pr.nombre, SUM(pi.cantidad) AS unidades,
+            SUM(pi.cantidad * pi.precio_unitario) AS total
+       FROM pedido_items pi
+       JOIN productos pr ON pr.id = pi.producto_id
+      WHERE pr.variedad = $1
+      GROUP BY pr.variedad, pr.nombre`,
+    [variedad]
+  );
   return rows;
 }
 
