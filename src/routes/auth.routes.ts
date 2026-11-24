@@ -71,10 +71,12 @@ router.post('/login', limiteLogin, async (req, res, next) => {
 /**
  * Cierre de sesión.
  *
- * FALLA: sólo borra la cookie del navegador. La sesión sigue existiendo en el
- * servidor, así que con la cookie robada se puede seguir usando.
+ * CORREGIDO (Integrante 2): la sesión se borra del almacén del servidor
+ * (destruirSesion) además de borrar la cookie del navegador. Así una cookie
+ * copiada o robada deja de servir después del logout.
  */
 router.post('/logout', (req, res) => {
+  destruirSesion(req);
   res.clearCookie('sid', { path: '/' });
   res.json({ mensaje: 'Sesión cerrada.' });
 });
