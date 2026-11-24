@@ -29,6 +29,7 @@ const router = express.Router();
  * -----------------------------------------------------------------------------
  */
 router.use(requiereSesion);
+router.use(requiereRol('admin'));
 
 /** GET /api/admin/usuarios */
 router.get('/usuarios', async (req, res, next) => {
@@ -52,7 +53,16 @@ router.put('/usuarios/:id', async (req, res, next) => {
     const cambios: Partial<Usuario> = {};
     if (username !== undefined) cambios.username = username;
     if (nombre !== undefined) cambios.nombre = nombre;
-    if (rol !== undefined) cambios.rol = rol;
+    
+  if (rol !== undefined) {
+  if (!req.usuario || req.usuario.rol !== 'admin') {
+    return res.status(403).json({
+      error: 'No tenés permisos para modificar roles.',
+    });
+  }
+
+  cambios.rol = rol;
+}
     if (password !== undefined) cambios.password = password;
 
     const usuario = await usuarios.actualizar(req.params.id, cambios);
