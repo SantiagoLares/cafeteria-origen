@@ -1,5 +1,7 @@
 import * as db from './db';
 import { CATALOGO } from './catalogo';
+import bcrypt from 'bcryptjs';
+import { COSTO_BCRYPT, esHashBcrypt } from './services/usuarios.service';
 import type { Rol } from './tipos';
 
 interface UsuarioInicial {
@@ -12,10 +14,10 @@ interface UsuarioInicial {
 /**
  * Carga los datos iniciales (usuarios y catálogo) si la base está vacía.
  *
- * FALLA — Almacenamiento inseguro de credenciales:
- * las contraseñas de los usuarios se guardan en TEXTO PLANO.
- * La corrección es hashear con bcrypt + salt por usuario
- * (bcryptjs ya está instalado como dependencia del proyecto).
+ * CORREGIDO — Almacenamiento de credenciales (Integrante 2):
+ * las contraseñas se guardan hasheadas con bcrypt (salt por usuario).
+ * Si la base ya existía con contraseñas en texto plano, la carga inicial
+ * las reemplaza por su hash (migración), sin cambiar la contraseña en sí.
  */
 
 export const USUARIOS_INICIALES: UsuarioInicial[] = [
@@ -54,13 +56,27 @@ export const USUARIOS_INICIALES: UsuarioInicial[] = [
 export async function inicializarBase(): Promise<void> {
   // --- Usuarios -------------------------------------------------------------
   for (const usuario of USUARIOS_INICIALES) {
-    // FALLA: la contraseña se guarda tal cual, sin hash ni salt.
+    const hash = await bcrypt.hash(usuario.password, COSTO_BCRYPT);
     await db.query(
       `INSERT INTO usuarios (username, password, rol, nombre)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (username) DO NOTHING`,
-      [usuario.username, usuario.password, usuario.rol, usuario.nombre]
+      [usuario.username, hash, usuario.rol, usuario.nombre]
     );
+  }
+
+  // Migración: las contraseñas que hayan quedado en texto plano de una
+  // versión anterior se reemplazan por su hash bcrypt.
+  const { rows: guardados } = await db.query<{ id: number; password: string }>(
+    'SELECT id, password FROM usuarios'
+  );
+  for (const guardado of guardados) {
+    if (typeof guardado.password === 'string' && !esHashBcrypt(guardado.password)) {
+      await db.query('UPDATE usuarios SET password = $1 WHERE id = $2', [
+        await bcrypt.hash(guardado.password, COSTO_BCRYPT),
+        guardado.id,
+      ]);
+    }
   }
 
   // --- Catálogo -------------------------------------------------------------
