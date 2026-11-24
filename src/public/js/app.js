@@ -86,41 +86,76 @@
     });
   }
 
-  function renderProductos(productos) {
-    var grid = $('#productos-grid');
+  
+function renderProductos(productos) {
+  var grid = $('#productos-grid');
 
-    if (!productos || productos.length === 0) {
-      grid.innerHTML = '<p class="empty">No encontramos productos con esos filtros.</p>';
-      return;
+  if (!productos || productos.length === 0) {
+    grid.textContent = '';
+
+    var mensaje = document.createElement('p');
+    mensaje.className = 'empty';
+    mensaje.textContent = 'No encontramos productos con esos filtros.';
+
+    grid.appendChild(mensaje);
+    return;
+  }
+
+  grid.textContent = '';
+
+  productos.forEach(function (p) {
+    window.__productos[p.id] = p;
+
+    var article = document.createElement('article');
+    article.className = 'product-card';
+
+    var top = document.createElement('div');
+    top.className = 'product-top';
+
+    var nombre = document.createElement('h3');
+    nombre.className = 'product-name';
+    nombre.textContent = p.nombre;
+
+    var precio = document.createElement('span');
+    precio.className = 'product-price';
+    precio.textContent = money(p.precio);
+
+    top.appendChild(nombre);
+    top.appendChild(precio);
+
+    var tags = document.createElement('div');
+    tags.className = 'product-tags';
+
+    function agregarTag(texto, clase) {
+      var tag = document.createElement('span');
+      tag.className = clase;
+      tag.textContent = texto;
+      tags.appendChild(tag);
     }
 
-    // ---------------------------------------------------------------
-    // FALLA (XSS reflejado / almacenado): el HTML se construye con
-    // innerHTML a partir de datos que vienen del servidor (nombres de
-    // producto y texto de la búsqueda). Un "<script>" en el buscador o
-    // en el nombre de un producto se ejecuta en el navegador.
-    //
-    // Corrección: usar textContent, o escapar los valores antes de
-    // interpolarlos (ver la función escaparHtml de arriba).
-    // ---------------------------------------------------------------
-    grid.innerHTML = productos.map(function (p) {
-      window.__productos[p.id] = p;
-      var tags = '<span class="tag">' + raw(p.tipo) + '</span>';
-      if (p.variedad) tags += '<span class="tag tag-origen">' + raw(p.variedad) + '</span>';
-      if (p.tamano) tags += '<span class="tag">' + raw(p.tamano) + '</span>';
+    agregarTag(p.tipo, 'tag');
 
-      return '' +
-        '<article class="product-card">' +
-        '  <div class="product-top">' +
-        '    <h3 class="product-name">' + raw(p.nombre) + '</h3>' +
-        '    <span class="product-price">' + money(p.precio) + '</span>' +
-        '  </div>' +
-        '  <div class="product-tags">' + tags + '</div>' +
-        '  <p class="product-desc">' + raw(p.descripcion) + '</p>' +
-        '  <button class="btn btn-ghost btn-agregar" data-id="' + raw(p.id) + '">Agregar</button>' +
-        '</article>';
-    }).join('');
-  }
+    if (p.variedad) agregarTag(p.variedad, 'tag tag-origen');
+    if (p.tamano) agregarTag(p.tamano, 'tag');
+
+    var descripcion = document.createElement('p');
+    descripcion.className = 'product-desc';
+    descripcion.textContent = p.descripcion;
+
+    var boton = document.createElement('button');
+    boton.className = 'btn btn-ghost btn-agregar';
+    boton.setAttribute('data-id', p.id);
+    boton.textContent = 'Agregar';
+
+    article.appendChild(top);
+    article.appendChild(tags);
+    article.appendChild(descripcion);
+    article.appendChild(boton);
+
+    grid.appendChild(article);
+  });
+}
+
 
   function renderResultado(filtros, total) {
     var el = $('#resultado-busqueda');
