@@ -4,6 +4,9 @@ import { crearSesion, destruirSesion, obtenerSesion } from '../middleware/sesion
 
 const router = express.Router();
 
+/** Mensaje único para cualquier login fallido (evita la enumeración de usuarios). */
+const MENSAJE_LOGIN_FALLIDO = 'Usuario o contraseña incorrectos.';
+
 /**
  * Inicio de sesión.
  *
@@ -23,20 +26,10 @@ router.post('/login', async (req, res, next) => {
       return res.status(400).json({ error: 'Falta usuario o contraseña.' });
     }
 
-    // La verificación de credenciales es la consulta concatenada (SQLi).
     const usuario = await usuarios.autenticar(username, password);
 
     if (!usuario) {
-      // FALLA — Enumeración de usuarios: el mensaje distingue entre
-      // "no existe" y "contraseña incorrecta", lo que permite a un atacante
-      // averiguar qué cuentas hay en el sistema.
-      const existe = await usuarios.buscarPorUsername(username);
-      if (existe) {
-        return res.status(401).json({ error: 'La contraseña es incorrecta.' });
-      }
-      return res
-        .status(401)
-        .json({ error: `El usuario "${username}" no existe en el sistema.` });
+      return res.status(401).json({ error: MENSAJE_LOGIN_FALLIDO });
     }
 
     crearSesion(req, res, {
