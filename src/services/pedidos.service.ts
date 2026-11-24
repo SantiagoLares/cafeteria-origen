@@ -88,14 +88,17 @@ async function buscarProducto(productoId: number): Promise<Producto> {
   return rows[0];
 }
 
-/** Lista pedidos (con filtro opcional por mesa). */
+/** Lista pedidos (con filtro opcional por mesa, parametrizado). */
 export async function listar(mesa?: string): Promise<Pedido[]> {
-  // FALLA: inyección SQL en el filtro de mesa.
-  let sql = 'SELECT * FROM pedidos';
-  if (mesa) sql += ` WHERE mesa = '${mesa}'`;
-  sql += ' ORDER BY id DESC';
+  if (typeof mesa === 'string' && mesa.trim() !== '') {
+    const { rows } = await db.query<Pedido>(
+      'SELECT * FROM pedidos WHERE mesa = $1 ORDER BY id DESC',
+      [mesa.trim()]
+    );
+    return rows;
+  }
 
-  const { rows } = await db.query<Pedido>(sql);
+  const { rows } = await db.query<Pedido>('SELECT * FROM pedidos ORDER BY id DESC');
   return rows;
 }
 
