@@ -1,42 +1,33 @@
 import path from 'path';
+import { randomBytes } from 'crypto';
 
-/**
- * Configuración de la aplicación.
- *
- * -----------------------------------------------------------------------------
- * FALLA 1 — Cifrado de datos y gestión de secretos (Ajustes de configuración)
- * -----------------------------------------------------------------------------
- * Las credenciales de la base de datos y el secreto de sesión están escritos
- * a mano en el código fuente. Cualquiera que clone el repositorio las conoce.
- *
- * Corrección: leer todo desde variables de entorno (ver .env.example) o desde
- * un gestor de secretos, y no versionar ningún secreto.
- * -----------------------------------------------------------------------------
- */
+function exigirEnv(nombre: string): string {
+  const valor = process.env[nombre];
+  if (!valor) {
+    throw new Error(`Falta la variable de entorno obligatoria: ${nombre}`);
+  }
+  return valor;
+}
+
+const nodeEnv = process.env.NODE_ENV || 'development';
+
 export default {
   port: Number(process.env.PORT || 3000),
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv,
 
   db: {
     host: process.env.DB_HOST || 'db',
     port: Number(process.env.DB_PORT || 5432),
     database: process.env.DB_NAME || 'origen',
-    // FALLA: la aplicación se conecta con el superusuario de la base de datos
-    // (mínimos privilegios). Existe un usuario `origen_app` con permisos
-    // reducidos para usar como corrección.
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
+    user: exigirEnv('DB_USER'),
+    password: exigirEnv('DB_PASSWORD'),
   },
 
-  // FALLA: secreto fijo y predecible, escrito en el código.
-  // Se necesita para firmar el token anti-CSRF (corrección del CSRF).
-  sessionSecret: 'origen-cafe-2024',
-
-  // FALLA: credenciales por defecto que nunca se cambian.
-  credencialesPorDefecto: {
-    username: 'admin',
-    password: 'admin',
-  },
+  sessionSecret:
+    process.env.SESSION_SECRET ||
+    (nodeEnv === 'production'
+      ? exigirEnv('SESSION_SECRET')
+      : randomBytes(32).toString('hex')),
 
   uploadsDir: process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads'),
 };
