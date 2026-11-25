@@ -38,8 +38,28 @@
 
 
 
+  /* --- Token CSRF: reemplazar la función api() actual por este bloque --- */
+  var tokenCsrf = null;
+
+  function obtenerToken() {
+    if (tokenCsrf) return Promise.resolve(tokenCsrf);
+    return fetch(API + '/csrf-token', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) { tokenCsrf = d.csrfToken; return tokenCsrf; });
+  }
+
   function api(url, opciones) {
-    return fetch(API + url, opciones).then(function (res) {
+    opciones = opciones || {};
+    var metodo = (opciones.method || 'GET').toUpperCase();
+    var pedirToken = metodo === 'GET' ? Promise.resolve(null) : obtenerToken();
+
+    return pedirToken.then(function (token) {
+      if (token) {
+        opciones.headers = Object.assign({}, opciones.headers, { 'X-CSRF-Token': token });
+      }
+      return fetch(API + url, opciones);
+    }).then(function (res) {
+      if (res.status === 403) tokenCsrf = null; // token vencido: se pide otro la próxima vez
       return res.json().catch(function () { return {}; }).then(function (data) {
         return { ok: res.ok, status: res.status, data: data };
       });
