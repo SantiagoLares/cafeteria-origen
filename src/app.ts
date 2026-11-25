@@ -10,6 +10,8 @@ import reportesRoutes from './routes/reportes.routes';
 import comentariosRoutes from './routes/comentarios.routes';
 import adminRoutes from './routes/admin.routes';
 import debugRoutes from './routes/debug.routes';
+import { emitirToken, verificarCsrf } from './middleware/csrf';
+
 
 const app = express();
 
@@ -33,6 +35,10 @@ app.use(
 );
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: emitirToken(req, res) });
+});
+app.use('/api', verificarCsrf);
 
 // Archivos subidos por el panel de administración.
 app.use('/uploads', express.static(config.uploadsDir));
