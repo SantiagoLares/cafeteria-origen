@@ -1,33 +1,25 @@
 /**
  * Gestión de sesiones.
  *
- * -----------------------------------------------------------------------------
- * FALLA — Gestión de sesiones insegura (Autenticación insegura)
- * -----------------------------------------------------------------------------
- * 1. El identificador de sesión es un contador incremental (`sesion_1`,
- *    `sesion_2`, ...): es PREDECIBLE y adivinable. Un atacante puede recorrer
- *    los valores y usurpar la sesión de otro usuario (fijación de sesión).
- * 2. La cookie se emite SIN `httpOnly` (JavaScript puede leerla), SIN `secure`
- *    (viaja en texto plano por HTTP) y SIN `sameSite` (el navegador la manda
- *    también en peticiones desde otros sitios → facilita CSRF).
- * 3. Las sesiones NO expiran nunca.
- * 4. Al iniciar sesión no se regenera el identificador.
- * 5. El cierre de sesión sólo borra la cookie del cliente: la sesión sigue
- *    viva en el servidor.
- *
- * Corrección: usar crypto.randomUUID() (o crypto.randomBytes -> hex) para el
- * id, con expiración por inactividad y absoluta, cookie con
- * { httpOnly: true, secure: true, sameSite: 'lax' }, regeneración del id tras
- * el login y borrado de la sesión en el servidor al hacer logout.
- * -----------------------------------------------------------------------------
+ * CORREGIDO (Integrante 3):
+ *  - #14: el id de sesión es aleatorio (crypto.randomBytes) y se regenera en
+ *    cada login (la sesión vieja de la petición se destruye).
+ *  - #13: la cookie lleva HttpOnly, SameSite=Lax y Secure (en producción).
+ *  - #15: las sesiones vencen por inactividad (30 min) y de forma absoluta (8 h).
  */
 
+import { randomBytes } from 'crypto';
 import type { Request, Response } from 'express';
 
+import config from '../config';
 import type { Sesion, UsuarioSesion } from '../tipos';
 
+/** Vence si pasan 30 minutos sin usar la sesión (se renueva en cada uso). */
+const TTL_INACTIVIDAD_MS = 30 * 60 * 1000;
+/** Vence 8 horas después del login, aunque se use sin parar. */
+const TTL_ABSOLUTO_MS = 8 * 60 * 60 * 1000;
+
 export const sesiones = new Map<string, Sesion>();
-let contadorSesiones = 0;
 
 /** Lee las cookies de la petición (parser mínimo, sin dependencias). */
 export function leerCookies(req: Request): Record<string, string> {
@@ -46,35 +38,51 @@ export function leerCookies(req: Request): Record<string, string> {
 
 /** Crea una sesión nueva para el usuario y setea la cookie. */
 export function crearSesion(req: Request, res: Response, usuario: UsuarioSesion): string {
-  contadorSesiones += 1;
+  // Regenerar el id: si la petición traía una sesión vieja, deja de valer
+  // (evita la fijación de sesión).
+  destruirSesion(req);
 
-  // FALLA: identificador predecible.
-  const id = `sesion_${contadorSesiones}`;
+  // Id aleatorio de 256 bits: no se puede adivinar.
+  const id = randomBytes(32).toString('hex');
 
-  // FALLA: la sesión nunca expira.
+  const ahora = Date.now();
   sesiones.set(id, {
     usuario,
-    creadaEn: Date.now(),
-    expiraEn: null,
+    creadaEn: ahora,
+    expiraEn: ahora + TTL_INACTIVIDAD_MS,
   });
 
-  // FALLA: cookie sin httpOnly / secure / sameSite.
-  res.cookie('sid', id, { path: '/' });
+  res.cookie('sid', id, {
+    httpOnly: true, // JavaScript no puede leerla (protege del robo por XSS)
+    secure: config.nodeEnv === 'production', // solo HTTPS en producción
+    sameSite: 'lax', // no se envía en POST desde otros sitios
+    path: '/',
+    maxAge: TTL_ABSOLUTO_MS,
+  });
 
   return id;
 }
 
-/** Devuelve la sesión de la petición, si existe. */
+/** Devuelve la sesión de la petición, si existe y no venció. */
 export function obtenerSesion(req: Request): Sesion | null {
-  const cookies = leerCookies(req);
-  const id = cookies.sid;
+  const id = leerCookies(req).sid;
   if (!id) return null;
-  return sesiones.get(id) || null;
+
+  const sesion = sesiones.get(id);
+  if (!sesion) return null;
+
+  const ahora = Date.now();
+  if (ahora > sesion.expiraEn || ahora - sesion.creadaEn > TTL_ABSOLUTO_MS) {
+    sesiones.delete(id); // vencida: se borra también del servidor
+    return null;
+  }
+
+  sesion.expiraEn = ahora + TTL_INACTIVIDAD_MS; // renueva la inactividad
+  return sesion;
 }
 
-/** Cierra la sesión en el servidor (debería llamarse en el logout). */
+/** Cierra la sesión en el servidor (se llama en el logout). */
 export function destruirSesion(req: Request): void {
-  const cookies = leerCookies(req);
-  const id = cookies.sid;
+  const id = leerCookies(req).sid;
   if (id) sesiones.delete(id);
 }
