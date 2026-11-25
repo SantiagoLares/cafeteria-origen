@@ -22,12 +22,6 @@
     return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
   }
 
-  function raw(valor) {
-    // FALLA: esta función NO escapa nada, devuelve el valor tal cual.
-    // La forma correcta de renderizar texto del servidor es escaparHtml()
-    // (o textContent en vez de innerHTML).
-    return String(valor == null ? '' : valor);
-  }
 
   function api(url, opciones) {
     return fetch(API + url, opciones).then(function (res) {
@@ -59,11 +53,6 @@
     }
   }
 
-  function escaparHtml(texto) {
-    var div = document.createElement('div');
-    div.textContent = texto == null ? '' : String(texto);
-    return div.innerHTML;
-  }
 
   /* ------------------------------------------------------------- catálogo */
   function urlCatalogo() {
@@ -340,18 +329,19 @@ function renderProductos(productos) {
       }),
     }).then(function (resp) {
       if (!resp.ok) {
-        // FALLA (XSS reflejado): el mensaje del servidor se pinta con innerHTML.
-        feedback.className = 'form-feedback is-error';
-        feedback.innerHTML = 'No pudimos enviar el pedido: ' + (resp.data.error || 'error desconocido');
-        return;
-      }
-      feedback.className = 'form-feedback is-error';
-      feedback.textContent = 'No pudimos enviar el pedido: ' +
+    feedback.className = 'form-feedback is-error';
+    feedback.textContent = 'No pudimos enviar el pedido: ' +
       (resp.data.error || 'error desconocido');
-      estado.carrito = [];
-      guardarCarrito();
-      renderCarrito();
-      $('#form-pedido').reset();
+    return;
+    }
+
+    feedback.className = 'form-feedback is-ok';
+    feedback.textContent = '¡Pedido enviado correctamente!';
+
+    estado.carrito = [];
+    guardarCarrito();
+    renderCarrito();
+    $('#form-pedido').reset();
     }).catch(function () {
       feedback.className = 'form-feedback is-error';
       feedback.textContent = 'Error de conexión con el servidor.';
@@ -371,9 +361,7 @@ function renderProductos(productos) {
       cont.appendChild(mensaje);
       return;
     }
-      // SOLUCIONADO
-      // FALLA (XSS almacenado): el texto de la reseña viene de la base y se
-      // inyecta con innerHTML → se ejecuta en el navegador de cada visitante.
+      // Se utiliza textContent para evitar interpretar el contenido como HTML.
             
       cont.textContent = '';
 
