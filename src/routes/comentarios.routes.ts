@@ -3,10 +3,8 @@ import * as comentarios from '../services/comentarios.service';
 
 const router = express.Router();
 
-/**
- * GET /api/comentarios — reseñas públicas de la cafetería.
- * El sitio las pinta con innerHTML: por eso son un vector de XSS almacenado.
- */
+const MAX_LONGITUD_RESEÑA = 1000;
+
 router.get('/', async (req, res, next) => {
   try {
     res.json({ comentarios: await comentarios.listar() });
@@ -24,11 +22,18 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const { autor, texto, calificacion } = req.body || {};
-    const comentario = await comentarios.crear({
-      autor,
-      texto,
-      calificacion,
+
+  if (typeof texto !== 'string' || texto.length > MAX_LONGITUD_RESEÑA) {
+    return res.status(400).json({
+      error: `La reseña no puede superar los ${MAX_LONGITUD_RESEÑA} caracteres.`,
     });
+  }
+
+  const comentario = await comentarios.crear({
+    autor,
+    texto,
+    calificacion,
+  });
     res.status(201).json(comentario);
   } catch (err) {
     next(err);
