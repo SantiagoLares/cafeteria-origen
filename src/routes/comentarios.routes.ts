@@ -24,9 +24,10 @@ router.post('/', async (req, res, next) => {
     const { autor, texto, calificacion } = req.body || {};
 
   if (typeof texto !== 'string' || texto.length > MAX_LONGITUD_RESEÑA) {
-    return res.status(400).json({
-      error: `La reseña no puede superar los ${MAX_LONGITUD_RESEÑA} caracteres.`,
-    });
+  return res.status(400).json({
+    error: 'La reseña supera la longitud máxima permitida.',
+  });
+
   }
 
   const comentario = await comentarios.crear({
